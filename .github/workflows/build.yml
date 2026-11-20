@@ -19,19 +19,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Install Gradle 8.7
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle-8.7-bin.zip
           sudo unzip -q /tmp/gradle-8.7-bin.zip -d /opt/
 
       - name: Build Debug APK
-        run: |
-          set -o pipefail
-          /opt/gradle-8.7/bin/gradle assembleDebug --no-daemon --console=plain 2>&1 | tee /tmp/build.log || {
-            echo "=== COMPILER ERRORS ==="
-            grep -E "^e: |Exception|FAILED" /tmp/build.log || tail -n 60 /tmp/build.log
-            exit 1
-          }
+        run: /opt/gradle-8.7/bin/gradle assembleDebug --no-daemon --console=plain --stacktrace
 
       - name: Upload Cosmo Debug APK
         uses: actions/upload-artifact@v4
