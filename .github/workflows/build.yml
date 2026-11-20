@@ -25,7 +25,13 @@ jobs:
           sudo unzip -q /tmp/gradle-8.7-bin.zip -d /opt/
 
       - name: Build Debug APK
-        run: /opt/gradle-8.7/bin/gradle assembleDebug --no-daemon
+        run: |
+          set -o pipefail
+          /opt/gradle-8.7/bin/gradle assembleDebug --no-daemon --console=plain 2>&1 | tee /tmp/build.log || {
+            echo "=== COMPILER ERRORS ==="
+            grep -E "^e: |Exception|FAILED" /tmp/build.log || tail -n 60 /tmp/build.log
+            exit 1
+          }
 
       - name: Upload Cosmo Debug APK
         uses: actions/upload-artifact@v4
