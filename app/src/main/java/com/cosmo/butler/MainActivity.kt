@@ -1,7 +1,6 @@
+
 package com.cosmo.butler
 
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
 import android.Manifest
 import android.app.Application
 import android.content.Context
@@ -34,6 +33,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -53,11 +53,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SportsEsports
@@ -71,17 +78,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,11 +101,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
@@ -116,6 +127,28 @@ import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// ============================================================================
+// HUD Color Palette
+// ============================================================================
+
+private val HudObsidian = Color(0xFF06090F)
+private val HudCard = Color(0xFF0D131F)
+private val HudCardElevated = Color(0xFF131C2E)
+private val HudBorder = Color(0xFF1E2D45)
+private val CyanAccent = Color(0xFF00E5FF)
+private val AmberAccent = Color(0xFFFFB300)
+private val CrimsonAccent = Color(0xFFFF2A4B)
+private val EmeraldAccent = Color(0xFF00E676)
+private val HudTextPrimary = Color(0xFFEAF2FF)
+private val HudTextSecondary = Color(0xFF9EB0CE)
+private val HudTextMuted = Color(0xFF637696)
+private val LogOkGreen = Color(0xFF39FF88)
+private val LogErrRed = Color(0xFFFF526B)
+
+// ============================================================================
+// 1. RootShell — Safe `su` Command Runner
+// ============================================================================
 
 data class ShellResult(
     val command: String,
@@ -142,7 +175,8 @@ object RootShell {
         }
     }
 
-    fun isRootAvailable(): Boolean = exec("id").let { it.isSuccess && it.output.contains("uid=0") }
+    fun isRootAvailable(): Boolean =
+        exec("id").let { it.isSuccess && it.output.contains("uid=0") }
 
     fun forceStopApps(packages: Collection<String>): List<ShellResult> =
         packages.filter { it.isNotBlank() }.map { pkg ->
@@ -165,17 +199,20 @@ object RootShell {
         exec("cmd notification set_dnd ${if (enabled) "on" else "off"}")
 }
 
+// ============================================================================
+// 2. Modes, Preferences & Execution
+// ============================================================================
+
 enum class CosmoMode(
-    val titleRes: Int,
-    val descRes: Int,
+    val title: String,
+    val summary: String,
     val accent: Color,
-    val icon: ImageVector,
-    val testTag: String
+    val icon: ImageVector
 ) {
-    STUDY(R.string.mode_study_title, R.string.mode_study_desc, StudyCyan, Icons.Filled.MenuBook, "mode_study_button"),
-    GAME(R.string.mode_game_title, R.string.mode_game_desc, GameAmber, Icons.Filled.SportsEsports, "mode_game_button"),
-    SLEEP(R.string.mode_sleep_title, R.string.mode_sleep_desc, SleepCrimson, Icons.Filled.Bedtime, "mode_sleep_button"),
-    NORMAL(R.string.mode_normal_title, R.string.mode_normal_desc, NormalEmerald, Icons.Filled.PowerSettingsNew, "mode_normal_button")
+    STUDY("Study Mode", "DND ON • KILL DISTRACTIONS", CyanAccent, Icons.Filled.MenuBook),
+    GAME("Game Mode", "120HZ LOCK • DROP CACHES • DND", AmberAccent, Icons.Filled.SportsEsports),
+    SLEEP("Sleep Mode", "RED OVERLAY • DND • 60HZ", CrimsonAccent, Icons.Filled.Bedtime),
+    NORMAL("Normal Mode", "CLEAR FILTER • DND OFF • AUTO HZ", EmeraldAccent, Icons.Filled.PowerSettingsNew)
 }
 
 object CosmoPrefs {
@@ -264,6 +301,10 @@ object CosmoModeExecutor {
     }
 }
 
+// ============================================================================
+// 3. ViewModel & UI State
+// ============================================================================
+
 enum class RootStatus { CHECKING, ONLINE, DENIED }
 
 data class TelemetryLogEntry(
@@ -345,11 +386,10 @@ class CosmoViewModel(application: Application) : AndroidViewModel(application) {
             }
             val succeeded = results.count { it.isSuccess }
             val total = results.size
-            val headerOk = succeeded == total
             appendLog(
                 summary = "[${mode.name}] $succeeded/$total su cmds ok" +
                     if (mode == CosmoMode.SLEEP && !Settings.canDrawOverlays(context)) " • grant overlay!" else "",
-                isSuccess = headerOk
+                isSuccess = succeeded == total
             )
             results.takeLast(3).forEach { res ->
                 val shortCmd = res.command.take(44)
@@ -404,6 +444,10 @@ class CosmoViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
+// ============================================================================
+// 4. MainActivity & HUD UI
+// ============================================================================
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -412,7 +456,21 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
         setContent {
-            CosmoTheme {
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = CyanAccent,
+                    onPrimary = HudObsidian,
+                    secondary = AmberAccent,
+                    tertiary = CrimsonAccent,
+                    background = HudObsidian,
+                    onBackground = HudTextPrimary,
+                    surface = HudCard,
+                    onSurface = HudTextPrimary,
+                    surfaceVariant = HudCardElevated,
+                    onSurfaceVariant = HudTextSecondary,
+                    outline = HudBorder
+                )
+            ) {
                 CosmoHudScreen()
             }
         }
@@ -424,644 +482,20 @@ fun CosmoHudScreen(viewModel: CosmoViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
     var showTargetsDialog by remember { mutableStateOf(false) }
+
+    // Voice & AI Bar state
+    var isListening by remember { mutableStateOf(false) }
+    var isThinking by remember { mutableStateOf(false) }
+    var voiceStatus by remember { mutableStateOf("Voice standby") }
+    var aiReply by remember { mutableStateOf("") }
+    var chatInput by remember { mutableStateOf("") }
+
+    val cosmoBrain = remember { CosmoBrain() }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.refreshOverlayPermission()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    fun requestOverlayPermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:${context.packageName}")
-        )
-        context.startActivity(intent)
-    }
-
-    fun handleModeClick(mode: CosmoMode) {
-        if (mode == CosmoMode.SLEEP) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            if (!Settings.canDrawOverlays(context)) {
-                requestOverlayPermission()
-            }
-        }
-        viewModel.activateMode(mode)
-    }
-
-    val activeAccent by animateColorAsState(
-        targetValue = state.activeMode.accent,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "hudAccent"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(ObsidianBg)
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(activeAccent.copy(alpha = 0.14f), Color.Transparent),
-                    center = Offset(size.width * 0.5f, size.height * 0.14f),
-                    radius = size.width * 0.85f
-                )
-            )
-            val strokeColor = activeAccent.copy(alpha = 0.16f)
-            val gridStep = 48.dp.toPx()
-            var y = gridStep
-            while (y < size.height * 0.45f) {
-                drawLine(strokeColor.copy(alpha = 0.05f), Offset(0f, y), Offset(size.width, y), 1f)
-                y += gridStep
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .navigationBarsPadding()
-                .widthIn(max = 600.dp)
-                .align(Alignment.TopCenter)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            HudHeader(
-                activeAccent = activeAccent,
-                rootStatus = state.rootStatus,
-                hasOverlayPermission = state.hasOverlayPermission,
-                targetCount = state.distractingPackages.size,
-                onProbeRoot = viewModel::probeRoot,
-                onRequestOverlay = ::requestOverlayPermission,
-                onOpenTargets = { showTargetsDialog = true }
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    ModeTile(
-                        mode = CosmoMode.STUDY,
-                        isSelected = state.activeMode == CosmoMode.STUDY,
-                        isExecuting = state.isExecuting && state.activeMode == CosmoMode.STUDY,
-                        onClick = { handleModeClick(CosmoMode.STUDY) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ModeTile(
-                        mode = CosmoMode.GAME,
-                        isSelected = state.activeMode == CosmoMode.GAME,
-                        isExecuting = state.isExecuting && state.activeMode == CosmoMode.GAME,
-                        onClick = { handleModeClick(CosmoMode.GAME) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    ModeTile(
-                        mode = CosmoMode.SLEEP,
-                        isSelected = state.activeMode == CosmoMode.SLEEP,
-                        isExecuting = state.isExecuting && state.activeMode == CosmoMode.SLEEP,
-                        onClick = { handleModeClick(CosmoMode.SLEEP) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ModeTile(
-                        mode = CosmoMode.NORMAL,
-                        isSelected = state.activeMode == CosmoMode.NORMAL,
-                        isExecuting = state.isExecuting && state.activeMode == CosmoMode.NORMAL,
-                        onClick = { handleModeClick(CosmoMode.NORMAL) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = state.activeMode == CosmoMode.SLEEP,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                RedFilterSliderCard(
-                    alpha = state.redOverlayAlpha,
-                    onAlphaChange = viewModel::updateRedOverlayAlpha
-                )
-            }
-
-            TelemetryLogCard(
-                logs = state.logs,
-                accentColor = activeAccent,
-                onClear = viewModel::clearLogs
-            )
-        }
-    }
-
-    if (showTargetsDialog) {
-        DistractingTargetsDialog(
-            packages = state.distractingPackages,
-            onAdd = viewModel::addDistractingPackage,
-            onRemove = viewModel::removeDistractingPackage,
-            onDismiss = { showTargetsDialog = false }
-        )
-    }
-}
-
-@Composable
-private fun HudHeader(
-    activeAccent: Color,
-    rootStatus: RootStatus,
-    hasOverlayPermission: Boolean,
-    targetCount: Int,
-    onProbeRoot: () -> Unit,
-    onRequestOverlay: () -> Unit,
-    onOpenTargets: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(activeAccent)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.app_name).uppercase(Locale.US),
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = TextPrimary
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.cosmo_subtitle),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextMuted
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = HudSurfaceElevated,
-                border = BorderStroke(1.dp, HudOutline),
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(onClick = onOpenTargets)
-                    .testTag("targets_button")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Tune,
-                        contentDescription = stringResource(R.string.cd_targets_button),
-                        tint = activeAccent,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "${stringResource(R.string.action_targets)} ($targetCount)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextPrimary
-                    )
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val (rootText, rootColor) = when (rootStatus) {
-                RootStatus.ONLINE -> stringResource(R.string.status_root_online) to TerminalGreen
-                RootStatus.DENIED -> stringResource(R.string.status_root_denied) to TerminalRed
-                RootStatus.CHECKING -> stringResource(R.string.status_root_checking) to GameAmber
-            }
-            StatusPill(
-                label = rootText,
-                dotColor = rootColor,
-                onClick = onProbeRoot,
-                trailingIcon = Icons.Filled.Refresh,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("root_status_pill")
-            )
-            StatusPill(
-                label = stringResource(
-                    if (hasOverlayPermission) R.string.status_overlay_ready
-                    else R.string.status_overlay_grant
-                ),
-                dotColor = if (hasOverlayPermission) TerminalGreen else GameAmber,
-                onClick = onRequestOverlay,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("overlay_status_pill")
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatusPill(
-    label: String,
-    dotColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    trailingIcon: ImageVector? = null
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = HudSurface,
-        border = BorderStroke(1.dp, dotColor.copy(alpha = 0.35f)),
-        modifier = modifier
-            .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(dotColor)
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (trailingIcon != null) {
-                Icon(
-                    imageVector = trailingIcon,
-                    contentDescription = stringResource(R.string.cd_refresh_root),
-                    tint = TextMuted,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModeTile(
-    mode: CosmoMode,
-    isSelected: Boolean,
-    isExecuting: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val borderColor by animateColorAsState(
-        targetValue = if (isSelected) mode.accent else HudOutline,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "tileBorder"
-    )
-    val borderWidth by animateDpAsState(
-        targetValue = if (isSelected) 2.dp else 1.dp,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "tileBorderWidth"
-    )
-    val containerBg by animateColorAsState(
-        targetValue = if (isSelected) mode.accent.copy(alpha = 0.14f) else HudSurface,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "tileBg"
-    )
-
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = containerBg,
-        border = BorderStroke(borderWidth, borderColor),
-        modifier = modifier
-            .height(156.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .testTag(mode.testTag)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(mode.accent.copy(alpha = if (isSelected) 0.25f else 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = mode.icon,
-                        contentDescription = stringResource(R.string.cd_mode_icon),
-                        tint = mode.accent,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                if (isExecuting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = mode.accent
-                    )
-                } else if (isSelected) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(mode.accent)
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(mode.titleRes),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = if (isSelected) TextPrimary else TextPrimary.copy(alpha = 0.9f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(mode.descRes),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isSelected) mode.accent else TextMuted,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RedFilterSliderCard(
-    alpha: Float,
-    onAlphaChange: (Float) -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = HudSurface,
-        border = BorderStroke(1.dp, SleepCrimson.copy(alpha = 0.45f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.red_filter_intensity_label),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = SleepCrimson
-                )
-                Text(
-                    text = "${(alpha * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Slider(
-                value = alpha,
-                onValueChange = onAlphaChange,
-                valueRange = RedOverlayService.MIN_ALPHA..RedOverlayService.MAX_ALPHA,
-                colors = SliderDefaults.colors(
-                    thumbColor = SleepCrimson,
-                    activeTrackColor = SleepCrimson,
-                    inactiveTrackColor = HudOutline
-                ),
-                modifier = Modifier.testTag("red_filter_slider")
-            )
-        }
-    }
-}
-
-@Composable
-private fun TelemetryLogCard(
-    logs: List<TelemetryLogEntry>,
-    accentColor: Color,
-    onClear: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = HudSurface,
-        border = BorderStroke(1.dp, HudOutline),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Terminal,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.shell_telemetry_title),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
-                }
-                if (logs.isNotEmpty()) {
-                    Text(
-                        text = stringResource(R.string.action_clear_log),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextMuted,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onClear)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .testTag("clear_log_button")
-                    )
-                }
-            }
-
-            if (logs.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.shell_telemetry_empty),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextMuted
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    logs.take(6).forEach { entry ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = entry.timestamp,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextMuted
-                            )
-                            Text(
-                                text = entry.summary,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (entry.isSuccess) TerminalGreen else TerminalRed,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DistractingTargetsDialog(
-    packages: List<String>,
-    onAdd: (String) -> Unit,
-    onRemove: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var input by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = HudSurfaceElevated,
-        titleContentColor = TextPrimary,
-        textContentColor = TextSecondary,
-        title = {
-            Text(
-                text = stringResource(R.string.targets_dialog_title),
-                style = MaterialTheme.typography.titleLarge
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = {
-                            Text(
-                                text = stringResource(R.string.targets_dialog_hint),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("target_package_input")
-                    )
-                    Button(
-                        onClick = {
-                            onAdd(input)
-                            input = ""
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = StudyCyan),
-                        modifier = Modifier.testTag("add_target_button")
-                    ) {
-                        Text(
-                            text = stringResource(R.string.targets_dialog_add),
-                            color = ObsidianBg
-                        )
-                    }
-                }
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 220.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(packages, key = { it }) { pkg ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(HudSurface)
-                                .border(1.dp, HudOutline, RoundedCornerShape(10.dp))
-                                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = pkg,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = { onRemove(pkg) }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = stringResource(R.string.cd_remove_package),
-                                    tint = TerminalRed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(
-                    text = stringResource(R.string.targets_dialog_done),
-                    color = StudyCyan
-                )
-            }
-        }
-    )
-}
+    fun requestOve
